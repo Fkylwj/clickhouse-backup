@@ -3,13 +3,14 @@ package config
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"math"
 	"os"
 	"regexp"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/Altinity/clickhouse-backup/v2/pkg/log_helper"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -25,16 +26,16 @@ const (
 
 // Config - config file format
 type Config struct {
-	General    GeneralConfig    `yaml:"general" envconfig:"_"`
-	ClickHouse ClickHouseConfig `yaml:"clickhouse" envconfig:"_"`
-	S3         S3Config         `yaml:"s3" envconfig:"_"`
-	GCS        GCSConfig        `yaml:"gcs" envconfig:"_"`
-	COS        COSConfig        `yaml:"cos" envconfig:"_"`
-	API        APIConfig        `yaml:"api" envconfig:"_"`
-	FTP        FTPConfig        `yaml:"ftp" envconfig:"_"`
-	SFTP       SFTPConfig       `yaml:"sftp" envconfig:"_"`
-	AzureBlob  AzureBlobConfig  `yaml:"azblob" envconfig:"_"`
-	Custom     CustomConfig     `yaml:"custom" envconfig:"_"`
+	General    GeneralConfig    `yaml:"general" envconfig:"_" json:"general"`
+	ClickHouse ClickHouseConfig `yaml:"clickhouse" envconfig:"_" json:"clickhouse"`
+	S3         S3Config         `yaml:"s3" envconfig:"_" json:"s3"`
+	GCS        GCSConfig        `yaml:"gcs" envconfig:"_" json:"gcs"`
+	COS        COSConfig        `yaml:"cos" envconfig:"_" json:"cos"`
+	API        APIConfig        `yaml:"api" envconfig:"_" json:"api"`
+	FTP        FTPConfig        `yaml:"ftp" envconfig:"_" json:"ftp"`
+	SFTP       SFTPConfig       `yaml:"sftp" envconfig:"_" json:"sftp"`
+	AzureBlob  AzureBlobConfig  `yaml:"azblob" envconfig:"_" json:"azblob"`
+	Custom     CustomConfig     `yaml:"custom" envconfig:"_" json:"custom"`
 }
 
 // GeneralConfig - general setting section
@@ -199,11 +200,11 @@ type SFTPConfig struct {
 
 // CustomConfig - custom CLI storage settings section
 type CustomConfig struct {
-	UploadCommand          string `yaml:"upload_command" envconfig:"CUSTOM_UPLOAD_COMMAND"`
-	DownloadCommand        string `yaml:"download_command" envconfig:"CUSTOM_DOWNLOAD_COMMAND"`
-	ListCommand            string `yaml:"list_command" envconfig:"CUSTOM_LIST_COMMAND"`
-	DeleteCommand          string `yaml:"delete_command" envconfig:"CUSTOM_DELETE_COMMAND"`
-	CommandTimeout         string `yaml:"command_timeout" envconfig:"CUSTOM_COMMAND_TIMEOUT"`
+	UploadCommand          string `yaml:"upload_command" envconfig:"CUSTOM_UPLOAD_COMMAND" json:"upload_command"`
+	DownloadCommand        string `yaml:"download_command" envconfig:"CUSTOM_DOWNLOAD_COMMAND" json:"download_command"`
+	ListCommand            string `yaml:"list_command" envconfig:"CUSTOM_LIST_COMMAND" json:"list_command"`
+	DeleteCommand          string `yaml:"delete_command" envconfig:"CUSTOM_DELETE_COMMAND" json:"delete_command"`
+	CommandTimeout         string `yaml:"command_timeout" envconfig:"CUSTOM_COMMAND_TIMEOUT" json:"command_timeout"`
 	CommandTimeoutDuration time.Duration
 }
 
@@ -730,4 +731,26 @@ func RestoreEnvVars(envVars map[string]oldEnvValues) {
 			}
 		}
 	}
+}
+
+// SaveConfig - save config to file and reload config to environment variables
+func SaveConfig(cfg *Config, configLocation string) error {
+
+	configYaml, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(configLocation, configYaml, 0644)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("can't write config file: %v", err)
+	}
+	if err = envconfig.Process("", cfg); err != nil {
+		return err
+	}
+	cfg.AzureBlob.Path = strings.TrimPrefix(cfg.AzureBlob.Path, "/")
+	cfg.S3.Path = strings.TrimPrefix(cfg.S3.Path, "/")
+	cfg.GCS.Path = strings.TrimPrefix(cfg.GCS.Path, "/")
+	log_helper.SetLogLevelFromString(cfg.General.LogLevel)
+	return nil
 }

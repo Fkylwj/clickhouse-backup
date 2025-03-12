@@ -123,46 +123,29 @@ $(PKG_FILES): build/linux/amd64/pkg build/linux/arm64/pkg
 
 build-race: $(NAME)/$(NAME)-race
 
-$(NAME)/$(NAME)-race:
-	CC=musl-gcc CGO_ENABLED=1 $(GO_BUILD_STATIC) -cover -gcflags "all=-N -l" -race -o $@ ./cmd/$(NAME)
-
-build-race-fips: $(NAME)/$(NAME)-race-fips
-
-$(NAME)/$(NAME)-race-fips:
-	CC=musl-gcc GOEXPERIMENT=boringcrypto CGO_ENABLED=1 $(GO_BUILD_STATIC_FIPS) -cover -gcflags "all=-N -l" -race -o $@ ./cmd/$(NAME)
+$(NAME)/$(NAME)-race: $(GO_FILES)
+	CGO_ENABLED=1 $(GO_BUILD) -gcflags "all=-N -l" -race -o $@ ./cmd/$(NAME)
 
 
-# run `docker buildx create --use` first time
-build-race-docker:
-	bash -xce 'docker buildx build --build-arg CLICKHOUSE_VERSION=$${CLICKHOUSE_VERSION:-latest} --build-arg CLICKHOUSE_IMAGE=$${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server} --build-arg VERSION=$(VERSION) \
-			--tag $(NAME):build-race --target make-build-race --progress plain --load . && \
-		mkdir -pv ./$(NAME) && \
-		DOCKER_ID=$$(docker create $(NAME):build-race) && \
-		docker cp $${DOCKER_ID}:/src/$(NAME)/$(NAME)-race ./$(NAME)/ && \
-		docker rm -f "$${DOCKER_ID}" && \
-		cp -fl ./$(NAME)/$(NAME)-race ./$(NAME)/$(NAME)-race-docker'
+# 仓库地址基础路径  默认hub.deepin.com/wuhan_udcp
+DOCKER_BASE := $(if $(DOCKER_BASE),$(DOCKER_BASE),hub.deepin.com/wuhan_udcp)
+# 架构
+GO_ARCH := $(shell echo $(ARCH)|awk '{ sub(/linux\//,""); print $$0 }')
+# 镜像标签
+DOCKER_TAG := $(if $(DOCKER_TAG),$(DOCKER_TAG),$(VERSION)) 
+# 如果要编译amd，执行 make docker ARCH=linux/amd64 DOCKER_TAG=2.6.5
+# 如果要编译arm，执行 make docker ARCH=linux/arm64 DOCKER_TAG=2.6.5
+docker:
+	docker buildx build \
+		--build-arg TARGETPLATFORM=$(ARCH) \
+		--rm -f Dockerfile \
+		-t $(DOCKER_BASE)/$(NAME):$(DOCKER_TAG)-$(GO_ARCH) \
+		--platform=$(ARCH) \
+		-o type=docker .;
 
-build-race-fips-docker:
-	bash -xce 'docker buildx build --build-arg CLICKHOUSE_VERSION=$${CLICKHOUSE_VERSION:-latest} --build-arg CLICKHOUSE_IMAGE=$${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server} --build-arg VERSION=$(VERSION) \
-			--tag $(NAME):build-race-fips --target make-build-race-fips --progress plain --load . && \
-		mkdir -pv ./$(NAME) && \
-		DOCKER_ID=$$(docker create $(NAME):build-race-fips) && \
-		docker cp $${DOCKER_ID}:/src/$(NAME)/$(NAME)-race-fips ./$(NAME)/ && \
-		docker rm -f "$${DOCKER_ID}" && \
-		cp -fl ./$(NAME)/$(NAME)-race-fips ./$(NAME)/$(NAME)-race-fips-docker'
-
-build-docker:
-	bash -xce 'docker buildx build --build-arg CLICKHOUSE_VERSION=$${CLICKHOUSE_VERSION:-latest} --build-arg CLICKHOUSE_IMAGE=$${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server} --build-arg VERSION=$(VERSION) \
-			--tag $(NAME):build-docker --target make-build-docker --progress plain --load . && \
-		mkdir -pv ./build && \
-		DOCKER_ID=$$(docker create $(NAME):build-docker) && \
-		docker cp $${DOCKER_ID}:/src/build/. ./build/ && \
-		docker rm -f "$${DOCKER_ID}"'
-
-build-fips-docker:
-	bash -xce 'docker buildx build --build-arg CLICKHOUSE_VERSION=$${CLICKHOUSE_VERSION:-latest} --build-arg CLICKHOUSE_IMAGE=$${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server} --build-arg VERSION=$(VERSION) \
-			--tag $(NAME):build-docker-fips --target make-build-fips --progress plain --load . && \
-		mkdir -pv ./build && \
-		DOCKER_ID=$$(docker create $(NAME):build-docker-fips) && \
-		docker cp $${DOCKER_ID}:/src/build/. ./build/ && \
-		docker rm -f "$${DOCKER_ID}"'
+# 使用 docker manifest 合并多架构镜像并推送
+docker_manifest:
+	docker push hub.deepin.com/wuhan_udcp/clickhouse-backup:2.6.5-amd64
+	docker push hub.deepin.com/wuhan_udcp/clickhouse-backup:2.6.5-arm64
+	docker manifest create hub.deepin.com/wuhan_udcp/clickhouse-backup:2.6.5 hub.deepin.com/wuhan_udcp/clickhouse-backup:2.6.5-arm64 hub.deepin.com/wuhan_udcp/clickhouse-backup:2.6.5-amd64 
+	docker manifest push -p hub.deepin.com/wuhan_udcp/clickhouse-backup:2.6.5
